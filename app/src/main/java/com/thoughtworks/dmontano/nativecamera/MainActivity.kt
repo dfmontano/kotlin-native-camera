@@ -1,42 +1,126 @@
+
 package com.thoughtworks.dmontano.nativecamera
 
+import android.Manifest
+import android.app.Activity
+import android.content.DialogInterface
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.support.design.widget.Snackbar
-import android.support.v7.app.AppCompatActivity;
-import android.view.Menu
-import android.view.MenuItem
-import com.facebook.drawee.backends.pipeline.Fresco
-
-import kotlinx.android.synthetic.main.activity_main.*
+import android.os.Environment
+import android.provider.MediaStore
+import android.support.v4.content.FileProvider
+import android.support.v7.app.AlertDialog
+import android.support.v7.app.AppCompatActivity
+import android.widget.Toast
+import butterknife.BindView
+import butterknife.ButterKnife
+import butterknife.OnClick
+import com.facebook.common.util.UriUtil
+import com.facebook.drawee.view.SimpleDraweeView
+import com.karumi.dexter.Dexter
+import com.karumi.dexter.MultiplePermissionsReport
+import com.karumi.dexter.PermissionToken
+import com.karumi.dexter.listener.PermissionRequest
+import com.karumi.dexter.listener.multi.MultiplePermissionsListener
+import com.thoughtworks.dmontano.nativecamera.R
+import java.io.File
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
+    val CAMERA_REQUEST_CODE = 0
+    lateinit var imageFilePath: String
+    @BindView(R.id.imgAvatar) lateinit var imgAvatar: SimpleDraweeView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Fresco.initialize(this)
         setContentView(R.layout.activity_main)
-        setSupportActionBar(toolbar)
+        ButterKnife.bind(this)
 
-        fab.setOnClickListener { view ->
-            Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                .setAction("Action", null).show()
+    }
+
+    @OnClick(R.id.imgAvatar)
+    fun onClickImgAvatar() {
+        Dexter.withActivity(this)
+            .withPermissions(Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.CAMERA)
+            .withListener(object : MultiplePermissionsListener {
+                override fun onPermissionRationaleShouldBeShown(permissions: MutableList<PermissionRequest>?, token: PermissionToken?) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("getString(R.string.storage_permission_rationale_title)")
+                        .setMessage("getString(R.string.storage_permission_rationale_message)")
+                        .setNegativeButton(android.R.string.cancel, DialogInterface.OnClickListener {
+                                dialogInterface, i ->
+                            dialogInterface.dismiss()
+                            token?.cancelPermissionRequest()
+                        })
+                        .setPositiveButton(android.R.string.ok, DialogInterface.OnClickListener {
+                                dialogInterface, i ->
+                            dialogInterface.dismiss()
+                            token?.continuePermissionRequest()
+                        })
+                        .show()
+                }
+
+                override fun onPermissionsChecked(report: MultiplePermissionsReport?) {
+                    if (report?.areAllPermissionsGranted()!!) {
+
+                        try {
+                            val imageFile = createImageFile()
+                            val callCameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                            if(callCameraIntent.resolveActivity(packageManager) != null) {
+                                val authorities = packageName + ".fileprovider"
+                                val imageUri = FileProvider.getUriForFile(this@MainActivity, authorities, imageFile)
+                                callCameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri)
+                                startActivityForResult(callCameraIntent, CAMERA_REQUEST_CODE)
+                            }
+                        } catch (e: IOException) {
+                            Toast.makeText(this@MainActivity, "Could not create file!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                }
+
+            }
+            ).check()
+    }
+
+
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        when(requestCode) {
+            CAMERA_REQUEST_CODE -> {
+/*                if(resultCode == Activity.RESULT_OK && data != null) {
+                    photoImageView.setImageBitmap(data.extras.get("data") as Bitmap)
+                }*/
+                if (resultCode == Activity.RESULT_OK) {
+                    val imgUri = Uri.Builder()
+                        .scheme(UriUtil.LOCAL_FILE_SCHEME)
+                        .path(imageFilePath)
+                        .build()
+                    imgAvatar.setImageURI(imgUri, this)
+                }
+            }
+            else -> {
+                Toast.makeText(this, "Unrecognized request code", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        menuInflater.inflate(R.menu.menu_main, menu)
-        return true
+    @Throws(IOException::class)
+    fun createImageFile(): File {
+        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val imageFileName: String = "JPEG_" + timeStamp + "_"
+        val storageDir: File = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        if(!storageDir.exists()) storageDir.mkdirs()
+        val imageFile = File.createTempFile(imageFileName, ".jpg", storageDir)
+        imageFilePath = imageFile.absolutePath
+        return imageFile
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        return when (item.itemId) {
-            R.id.action_settings -> true
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
 }
+
